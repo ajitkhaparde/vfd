@@ -297,6 +297,22 @@ static void apply_rx_restrictions(uint8_t port_id, uint16_t vf, struct hwrm_cfa_
 		mi->mask &= ~HWRM_CFA_L2_SET_RX_MASK_INPUT_MASK_PROMISCUOUS;
 }
 
+
+static int verify_mtu(uint8_t port_id, uint16_t vf_id, struct hwrm_vnic_cfg_input *ci)
+{
+	struct sriov_port_s *p;
+	uint16_t port_mtu;
+	p = suss_port( port_id );
+	port_mtu = p->mtu + 14 + 4 + 4;
+
+	if ( port_mtu < ci->mru ) {
+		//ci->enables &= ~HWRM_VNIC_CFG_INPUT_ENABLES_MRU;
+		bleat_printf( 1, "verify_mtu: port_id=%d, vf_id=%d, VF mtu=%d > port mtu=%d", port_id, vf_id, ci->mru, port_mtu);
+		return 1;
+	}
+	return 0;
+}
+
 int
 vfd_bnxt_vf_msb_event_callback(uint8_t port_id, enum rte_eth_event_type type, void *data, void *param)
 {
@@ -362,6 +378,20 @@ vfd_bnxt_vf_msb_event_callback(uint8_t port_id, enum rte_eth_event_type type, vo
 		}
 
 		case HWRM_VNIC_CFG:
+		{
+			struct hwrm_vnic_cfg_input *ci = p->msg;
+			int ret;
+
+			ret = verify_mtu( port_id, vf, ci );
+			if (ret) {
+				p->retval = RTE_PMD_BNXT_MB_EVENT_NOOP_NACK;
+				add_refresh = false;
+			} else {
+				p->retval = RTE_PMD_BNXT_MB_EVENT_PROCEED;
+				add_refresh = true;
+			}
+			break;
+		}
 		case HWRM_FUNC_RESET:
 		case HWRM_VNIC_PLCMODES_CFG:
 		case HWRM_TUNNEL_DST_PORT_ALLOC:
